@@ -7,26 +7,49 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+      - --skip-innodb-read-only-compressed
     environment:
       MYSQL_ROOT_PASSWORD: 123
     volumes:
       - mariadb-data:/var/lib/mysql
+    networks:
+      - default
 
   redis:
     image: redis:alpine
+    networks:
+      - default
 
   frappe:
     image: frappe/bench:latest
+    container_name: frappe_lms  # Giving it a name helps debug later
     command: bash /workspace/init.sh
     environment:
       - SHELL=/bin/bash
     working_dir: /home/frappe
     volumes:
       - .:/workspace
-    ports:
-      - 8000:8000
-      - 9000:9000
+    
+    # 1. Connect to Coolify's network
+    networks:
+      - default
+      - coolify_net  
 
-volumes:
-  mariadb-data:
+    # 2. Tell Traefik how to handle this site
+    labels:
+      - "traefik.enable=true"
+      # The domain you want to use
+      - "traefik.http.routers.frappe-lms.rule=Host(`lms.growthcomarketing.com`)"
+      # Use HTTPS (websecure)
+      - "traefik.http.routers.frappe-lms.entrypoints=websecure"
+      # Tell Coolify/Traefik to generate SSL certs using its default resolver
+      - "traefik.http.routers.frappe-lms.tls.certresolver=letsencrypt"
+      # Point to the INTERNAL port (8000), not external
+      - "traefik.http.services.frappe-lms.loadbalancer.server.port=8000"
+
+# 3. Define the external network
+networks:
+  default:
+  coolify_net:
+    name: coolify # ⚠️ CHANGE THIS if your network name from Step 1 was different
+    external: true
